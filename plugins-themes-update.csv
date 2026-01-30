@@ -1,0 +1,13 @@
+wp plugin update --all
+wp theme uninstall twentytwentyone
+wp theme uninstall twentytwentytwo
+wp theme uninstall twentytwentythree
+wp theme uninstall twentytwentyfour
+wp theme update --all --exclude=hello-theme-child-master
+wp elementor update db
+wp elementor-pro update db
+wp elementor flush-css --regenerate
+wp post list --post_type=post --format=ids | xargs wp post update --ID= --comment_status=closed
+wp option update default_comment_status closed
+wp core update
+wp core update-db

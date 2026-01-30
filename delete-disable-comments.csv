@@ -1,0 +1,2 @@
+﻿wp post list --post_type=post --format=ids | xargs wp post update --ID= --comment_status=closed
+wp option update default_comment_status closed
