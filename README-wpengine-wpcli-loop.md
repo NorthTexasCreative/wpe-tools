@@ -20,6 +20,37 @@ If one site fails, the script keeps going to the next site.
 
 ---
 
+## WP Engine Key Setup (Required Before Quick Start)
+
+This tool uses SSH key authentication to connect to each WP Engine install.
+
+1. Create a key pair if you do not already have one:
+
+```bash
+ssh-keygen -t ed25519 -C "your-email@example.com"
+```
+
+2. Copy your public key:
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+3. In WP Engine User Portal:
+   - open your profile/user settings
+   - add the public key to your SSH keys
+   - confirm your user can access the installs in your sites file
+
+4. Validate access with one install:
+
+```bash
+ssh <install>@<install>.ssh.wpengine.net
+```
+
+If SSH login fails, fix key/access first. The script will fail preflight for those sites.
+
+---
+
 ## Quick Start (First Run)
 
 ### 1) Create a small sites file
@@ -65,13 +96,7 @@ Before running the script, confirm all of the following:
 1. You can log in to WP Engine User Portal.
 2. Your user has access to the installs listed in your sites file.
 3. Your local SSH key is loaded and registered in WP Engine.
-4. This command works for at least one install:
-
-```bash
-ssh <install>@<install>.ssh.wpengine.net
-```
-
-If SSH login fails, the script will fail preflight for that site.
+4. SSH works for at least one install.
 
 ---
 
