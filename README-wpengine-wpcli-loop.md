@@ -53,6 +53,8 @@ If SSH login fails, fix key/access first. The script will fail preflight for tho
 
 ## Quick Start (First Run)
 
+You can name your sites/commands CSV files whatever you want (for example, `prod-sites.csv`, `staging-sites.csv`, or `safe-commands.csv`). Just pass those filenames to the script command.
+
 ### 1) Create a small sites file
 
 ```csv

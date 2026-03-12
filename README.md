@@ -44,6 +44,8 @@ If this SSH test fails, fix key or access issues before running the script.
 
 1. Add your real install names to `sample-sites.csv`.
 2. Review `sample-commands.csv` and keep safe commands for first run.
+   - You can rename these files to anything (for example, `client-a-sites.csv` and `safe-checks.csv`).
+   - Just pass your chosen filenames when running the script.
 3. Dry run:
 
 ```bash
