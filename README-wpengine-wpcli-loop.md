@@ -51,9 +51,27 @@ wp plugin list
 
 ## Requirements
 
-- SSH access to your WP Engine installs (SSH key added in WP Engine portal)
+- WP Engine User Portal access to each target install/environment
+- SSH key pair on your local machine
+- Public SSH key added to your WP Engine user account
+- SSH access to your WP Engine installs (key-based auth, no password login)
 - Bash 4+ on your local machine
 - WP-CLI available on the WP Engine SSH environment
+
+### Access and credentials checklist
+
+Before running the script, confirm all of the following:
+
+1. You can log in to WP Engine User Portal.
+2. Your user has access to the installs listed in your sites file.
+3. Your local SSH key is loaded and registered in WP Engine.
+4. This command works for at least one install:
+
+```bash
+ssh <install>@<install>.ssh.wpengine.net
+```
+
+If SSH login fails, the script will fail preflight for that site.
 
 ---
 

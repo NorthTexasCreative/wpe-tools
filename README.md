@@ -20,6 +20,17 @@ Run the same WP-CLI command list across multiple WP Engine installs over SSH.
 ./wpengine-wpcli-loop.sh sample-sites.csv sample-commands.csv
 ```
 
+## Requirements
+
+- WP Engine User Portal access
+- Access to each target install/environment
+- Local SSH key pair, with your public key added in WP Engine
+- Ability to SSH to an install as:
+
+```bash
+ssh <install>@<install>.ssh.wpengine.net
+```
+
 ## Files
 
 - `wpengine-wpcli-loop.sh` - batch runner script
