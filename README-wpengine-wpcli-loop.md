@@ -1,35 +1,67 @@
-# wpengine-wpcli-loop.sh
+# WP Engine WP-CLI Loop
 
-Run WP-CLI commands on multiple WP Engine sites over SSH from CSV-driven site and command lists.
+Run the same WP-CLI command list across multiple WP Engine installs over SSH.
 
-## Overview
+> This repository is **not** a DDEV project. Run commands directly in your local shell.
 
-The script:
+---
 
-1. Reads a **sites CSV** — one WP Engine install/environment name per line (e.g. `myinstall`, `myinstalldev`).
-2. Reads a **commands CSV** — one WP-CLI command per line (e.g. `wp plugin list`, `wp theme update --all`).
-3. For each site, SSHes to `<install>@<install>.ssh.wpengine.net`, `cd`s to `/sites/<install>`, and runs each command in order.
-4. Prints all output to the terminal and appends it to a timestamped log file: `./wpcli_run_YYYY-MM-DD_HH-MM-SS.log`.
+## What This Script Does
 
-If a site or command fails, the script logs the error and continues with the next site. Commands run in the context of the site’s install directory on WP Engine.
+`wpengine-wpcli-loop.sh`:
+
+1. Reads a **sites file** (one install name per line)
+2. Reads a **commands file** (one WP-CLI command per line)
+3. Connects to each site as `<install>@<install>.ssh.wpengine.net`
+4. Runs commands in `/sites/<install>` in order
+5. Writes all output to terminal and a timestamped log file
+
+If one site fails, the script keeps going to the next site.
+
+---
+
+## Quick Start (First Run)
+
+### 1) Create a small sites file
+
+```csv
+# test one site first
+myinstallstaging
+```
+
+### 2) Create a safe commands file
+
+```csv
+wp plugin list
+```
+
+### 3) Dry-run first
+
+```bash
+./wpengine-wpcli-loop.sh --dry-run sites.csv commands.csv
+```
+
+### 4) Execute for real
+
+```bash
+./wpengine-wpcli-loop.sh sites.csv commands.csv
+```
+
+---
 
 ## Requirements
 
-- **SSH access to WP Engine** — Your SSH key must be configured for WP Engine (e.g. in the WP Engine User Portal). You connect as `<install>@<install>.ssh.wpengine.net`.
-- **Bash 4+** — The script uses `mapfile`; typical Linux/macOS bash meets this.
-- **WP-CLI on WP Engine** — WP Engine provides WP-CLI in the SSH environment; the script checks for it and exits with an error if it’s missing.
+- SSH access to your WP Engine installs (SSH key added in WP Engine portal)
+- Bash 4+ on your local machine
+- WP-CLI available on the WP Engine SSH environment
 
-## How to Use
+---
 
-### 1. Create a sites CSV
+## File Formats
 
-One WP Engine install name per line. These are the “install names” you use in the WP Engine dashboard and SSH (e.g. `myinstall`, `myinstalldev`, `myinstallstaging`).
+### Sites file (`sites.csv`)
 
-- Blank lines and lines starting with `#` are ignored.
-- Leading/trailing spaces are trimmed.
-- File can have a BOM or CRLF line endings; the script normalizes them.
-
-**Example `sites.csv`:**
+One install/environment name per line:
 
 ```csv
 # Production
@@ -40,73 +72,104 @@ myinstallstaging
 myinstalldev
 ```
 
-### 2. Create a commands CSV
+### Commands file (`commands.csv`)
 
-One WP-CLI command per line. Commands are run in order inside `/sites/<install>` on the server.
-
-- Blank lines and lines starting with `#` are ignored.
-- Leading/trailing spaces are trimmed.
-- Same BOM/CRLF handling as the sites file.
-
-**Example `plugins-themes-update.csv`:**
+One WP-CLI command per line:
 
 ```csv
-# Update plugins and themes
+# Update stack
 wp plugin update --all
 wp theme update --all
 wp core update
-```
-
-**Example `core-update.csv`:**
-
-```csv
-wp core update
 wp core update-db
+wp cache flush
 ```
 
-### 3. Run the script
+### Parsing rules (both files)
 
-From the directory that contains (or can see) your CSV files:
+- Blank lines are ignored
+- Lines starting with `#` are ignored
+- Leading/trailing whitespace is trimmed
+- BOM and CRLF are normalized automatically
+
+---
+
+## Usage
 
 ```bash
-./wpengine-wpcli-loop.sh <sites_csv_file> <commands_csv_file>
+./wpengine-wpcli-loop.sh [--dry-run] <sites_file> <commands_file>
 ```
 
-**Examples:**
+### Examples
 
 ```bash
 ./wpengine-wpcli-loop.sh sites.csv plugins-themes-update.csv
 ./wpengine-wpcli-loop.sh newfrontierweb.csv core-update.csv
-./wpengine-wpcli-loop.sh my-sites.csv update-plugins.csv
+./wpengine-wpcli-loop.sh --dry-run sites.csv plugins-themes-update.csv
 ```
 
-- **Sites file:** path to the CSV of WP Engine install names.
-- **Commands file:** path to the CSV of WP-CLI commands.
+### Arguments
 
-Filenames are matched **case-insensitively** (e.g. `Sites.CSV` will find `sites.csv` in the current directory).
+- `<sites_file>`: path to install list file
+- `<commands_file>`: path to WP-CLI command list file
+- `--dry-run`: validates connection and previews commands without executing WP-CLI commands
 
-### 4. Check the log
+---
 
-After each run, a log file is written in the current directory:
+## Output and Logs
 
-- **Name:** `wpcli_run_YYYY-MM-DD_HH-MM-SS.log`
-- **Contents:** Full SSH output for each site (connection, commands, errors).
+Each run creates:
 
-Use this to verify what ran and to debug failures.
+- `./wpcli_run_YYYY-MM-DD_HH-MM-SS.log`
 
-## CSV file location
+The log includes:
 
-- CSV paths can be relative or absolute.
-- If the script doesn’t find the file as given, it looks in the **current directory** for a file with the same name (case-insensitive). So `./wpengine-wpcli-loop.sh sites.csv commands.csv` will use `./sites.csv` and `./commands.csv` when run from the script’s directory.
+- connection/preflight checks
+- each command attempted
+- command failures
+- final summary (sites/commands success and failure counts)
 
-## Error handling
+---
 
-- **Missing CSV or no sites/commands:** The script exits with an error and usage message.
-- **SSH or directory failure for a site:** The failure is logged; the script continues with the next site.
-- **WP-CLI command failure on a site:** The failed command is reported; the script continues with the next command and then the next site.
+## Failure Behavior (Important)
 
-## Tips
+- Missing sites/commands file: script exits with error
+- Site preflight fails (SSH, directory, or `wp` not found): site is marked failed, script continues
+- A command fails on a site: command is marked failed, remaining commands continue
+- Final exit code is non-zero if any site or command failed
+- SSH operations retry once automatically on failure
 
-- Test with a single site and one or two safe commands (e.g. `wp plugin list`) before running updates on many sites.
-- Use comment lines (`#`) in your CSVs to document which sites or commands you’re running.
-- Keep a backup or use staging/dev installs when running destructive or bulk update commands.
+---
+
+## Safety Tips
+
+- Start with one staging/dev site before production
+- Use `--dry-run` before destructive actions
+- Keep production and non-production in separate site files
+- Keep command files focused (one task per file)
+- Review the generated log before running the next batch
+
+---
+
+## Common Problems
+
+### `Permission denied (publickey)`
+
+Your local SSH key is not authorized for that WP Engine install.
+
+### `WP-CLI not found on remote server`
+
+Preflight failed to detect `wp` in that environment. Verify WP Engine SSH environment and path.
+
+### `Directory /sites/<install> not found`
+
+The install name in the sites file is incorrect for that environment.
+
+---
+
+## Included Example Files
+
+- `sites.csv`: sample list of installs
+- `plugins-themes-update.csv`: plugin/theme/core maintenance commands
+- `core-update.csv`: core and DB update commands
+- `delete-disable-comments.csv`: comment-closing commands

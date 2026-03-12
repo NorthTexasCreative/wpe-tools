@@ -8,7 +8,7 @@
 #   the terminal and appended to a timestamped log file.
 #
 # Usage:
-#   ./wpengine-wpcli-loop.sh <sites_csv_file> <commands_csv_file>
+#   ./wpengine-wpcli-loop.sh [--dry-run] <sites_csv_file> <commands_csv_file>
 #
 # Arguments:
 #   sites_csv_file   — Path to a CSV with one WP Engine install name per line
@@ -30,9 +30,15 @@
 #
 set -euo pipefail
 
+DRY_RUN=0
+if [[ "${1:-}" == "--dry-run" ]]; then
+    DRY_RUN=1
+    shift
+fi
+
 # --- Usage check ---
-if [[ $# -lt 2 ]]; then
-    echo "Usage: $0 <sites_csv_file> <commands_csv_file>"
+if [[ $# -ne 2 ]]; then
+    echo "Usage: $0 [--dry-run] <sites_csv_file> <commands_csv_file>"
     echo "Example: $0 my-sites.csv update-plugins.csv"
     exit 1
 fi
@@ -98,42 +104,116 @@ if [[ ${#WPCLI_COMMANDS[@]} -eq 0 ]]; then
 fi
 
 LOG_FILE="./wpcli_run_$(date +%F_%H-%M-%S).log"
+SSH_OPTS=(
+    -T
+    -o StrictHostKeyChecking=accept-new
+    -o ConnectTimeout=15
+    -o ServerAliveInterval=15
+    -o ServerAliveCountMax=3
+)
+
+TOTAL_SITES=0
+SUCCESSFUL_SITES=0
+FAILED_SITES=0
+TOTAL_COMMANDS=0
+FAILED_COMMANDS=0
+OVERALL_FAILED=0
+
+log_line() {
+    echo "$1"
+}
+
+# Mirror all output to both terminal and log file.
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+run_ssh_with_retry() {
+    local host="$1"
+    local remote_cmd="$2"
+    local attempts=2
+    local attempt
+
+    for (( attempt=1; attempt<=attempts; attempt++ )); do
+        if ssh "${SSH_OPTS[@]}" "$host" "$remote_cmd"; then
+            return 0
+        fi
+
+        if (( attempt < attempts )); then
+            log_line "⚠️ SSH command failed for $host (attempt $attempt/$attempts), retrying..."
+            sleep 2
+        fi
+    done
+
+    return 1
+}
 
 # --- Function to run WP-CLI commands on a single environment ---
 run_wpcli() {
     local env="$1"
     local host="${env}@${env}.ssh.wpengine.net"
+    local site_failed=0
 
-    {
-        echo "----------------------------------------"
-        echo "[$(date '+%F %T')] Connecting to: $env ($host)"
-        echo "----------------------------------------"
+    echo "----------------------------------------"
+    echo "[$(date '+%F %T')] Connecting to: $env ($host)"
+    echo "----------------------------------------"
 
-        ssh -T "$host" bash <<EOF
-            set -e
-            cd "/sites/${env}" || { echo "Error: Directory /sites/${env} not found"; exit 1; }
+    if ! run_ssh_with_retry "$host" "cd \"/sites/${env}\" && command -v wp >/dev/null 2>&1"; then
+        echo "❌ Preflight failed on $env (directory or WP-CLI check failed)"
+        return 1
+    fi
 
-            if ! command -v wp >/dev/null 2>&1; then
-                echo "Error: WP-CLI not found on remote server."
-                exit 1
-            fi
+    for cmd in "${WPCLI_COMMANDS[@]}"; do
+        TOTAL_COMMANDS=$((TOTAL_COMMANDS + 1))
+        echo ">>> Running: $cmd"
 
-$(for cmd in "${WPCLI_COMMANDS[@]}"; do
-    echo "            echo '>>> Running: $cmd'"
-    echo "            $cmd || echo '❌ Command failed: $cmd'"
-done)
-EOF
+        if (( DRY_RUN == 1 )); then
+            echo "🧪 Dry run: command not executed"
+            continue
+        fi
 
-        echo "✅ Finished: $env"
-        echo
-    } | tee -a "$LOG_FILE"
+        if ! run_ssh_with_retry "$host" "cd \"/sites/${env}\" && bash -lc $(printf '%q' "$cmd")"; then
+            echo "❌ Command failed: $cmd"
+            FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
+            site_failed=1
+        fi
+    done
+
+    if (( site_failed == 1 )); then
+        echo "⚠️ Finished with command failures: $env"
+        return 1
+    fi
+
+    echo "✅ Finished: $env"
+    echo
 }
 
 # --- Loop through environments with error handling ---
 for env in "${ENVS[@]}"; do
+    TOTAL_SITES=$((TOTAL_SITES + 1))
+
+    if [[ ! "$env" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
+        FAILED_SITES=$((FAILED_SITES + 1))
+        OVERALL_FAILED=1
+        log_line "❌ Invalid environment name '$env' (allowed: letters, numbers, hyphens)"
+        continue
+    fi
+
     if ! run_wpcli "$env"; then
-        echo "❌ Error running commands on $env — continuing to next site" | tee -a "$LOG_FILE"
+        FAILED_SITES=$((FAILED_SITES + 1))
+        OVERALL_FAILED=1
+        log_line "❌ Error running commands on $env — continuing to next site"
+    else
+        SUCCESSFUL_SITES=$((SUCCESSFUL_SITES + 1))
     fi
 done
 
-echo "All tasks completed. Log saved to: $LOG_FILE"
+log_line "Run summary:"
+log_line "  Sites total: $TOTAL_SITES"
+log_line "  Sites successful: $SUCCESSFUL_SITES"
+log_line "  Sites failed: $FAILED_SITES"
+log_line "  Commands attempted: $TOTAL_COMMANDS"
+log_line "  Commands failed: $FAILED_COMMANDS"
+log_line "All tasks completed. Log saved to: $LOG_FILE"
+
+if (( OVERALL_FAILED == 1 )); then
+    exit 1
+fi
