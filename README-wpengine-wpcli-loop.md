@@ -170,6 +170,8 @@ The install name in the sites file is incorrect for that environment.
 ## Included Example Files
 
 - `sites.csv`: sample list of installs
+- `sample-sites.csv`: starter sites template for new users
+- `sample-commands.csv`: starter safe command template for new users
 - `plugins-themes-update.csv`: plugin/theme/core maintenance commands
 - `core-update.csv`: core and DB update commands
 - `delete-disable-comments.csv`: comment-closing commands

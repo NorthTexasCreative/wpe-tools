@@ -1,0 +1,13 @@
+# One WP-CLI command per line.
+# Start with safe read-only commands, then move to updates once verified.
+
+# Safe checks
+wp core version
+wp plugin list --status=active
+wp theme list
+
+# Optional maintenance commands (uncomment when ready)
+# wp plugin update --all
+# wp theme update --all
+# wp core update
+# wp core update-db

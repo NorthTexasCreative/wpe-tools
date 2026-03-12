@@ -1,0 +1,11 @@
+# WP Engine install/environment names (one per line)
+# Replace these with your real install names from the WP Engine dashboard.
+
+# Production
+myinstall
+
+# Staging
+myinstallstaging
+
+# Development
+myinstalldev
