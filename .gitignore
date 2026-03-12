@@ -1,0 +1,3 @@
+# Runtime logs from wpengine-wpcli-loop.sh
+wpcli_run_*.log
+logs/*.log
