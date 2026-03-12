@@ -71,7 +71,6 @@ If this SSH test fails, fix key or access issues before running the script.
 - `wpengine-wpcli-loop.sh` - batch runner script
 - `sample-sites.csv` - starter site list
 - `sample-commands.csv` - starter command list
-- `examples/sites/` - additional site-list examples
 - `README-wpengine-wpcli-loop.md` - full documentation
 
 For full details, troubleshooting, and failure behavior, see `README-wpengine-wpcli-loop.md`.

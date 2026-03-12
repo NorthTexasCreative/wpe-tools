@@ -149,7 +149,7 @@ wp cache flush
 
 ```bash
 ./wpengine-wpcli-loop.sh sites.csv plugins-themes-update.csv
-./wpengine-wpcli-loop.sh examples/sites/newfrontierweb.csv core-update.csv
+./wpengine-wpcli-loop.sh sample-sites.csv core-update.csv
 ./wpengine-wpcli-loop.sh --dry-run sites.csv plugins-themes-update.csv
 ```
 
@@ -214,9 +214,6 @@ The install name in the sites file is incorrect for that environment.
 
 ## Included Example Files
 
-- `examples/sites/sites.csv`: sample list of installs
-- `examples/sites/newfrontierweb.csv`: single-site example list
-- `examples/sites/newfrontier2.csv`: larger multi-site example list
 - `sample-sites.csv`: starter sites template for new users
 - `sample-commands.csv`: starter safe command template for new users
 - `plugins-themes-update.csv`: plugin/theme/core maintenance commands

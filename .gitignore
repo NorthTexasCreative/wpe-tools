@@ -1,3 +1,6 @@
 # Runtime logs from wpengine-wpcli-loop.sh
 wpcli_run_*.log
 logs/*.log
+
+# Local/private site lists (keep local, never commit)
+examples/sites/*.csv
