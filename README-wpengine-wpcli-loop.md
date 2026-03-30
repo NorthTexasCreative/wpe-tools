@@ -91,6 +91,13 @@ wp plugin list
 - Bash 4+ on your local machine
 - WP-CLI available on the WP Engine SSH environment
 
+## Official References
+
+- WP Engine API Docs: [https://developers.wpengine.com/apis/](https://developers.wpengine.com/apis/)
+- WP Engine SSH Gateway: [https://wpengine.com/support/ssh-gateway/](https://wpengine.com/support/ssh-gateway/)
+- WP-CLI Handbook: [https://make.wordpress.org/cli/handbook/](https://make.wordpress.org/cli/handbook/)
+- WP-CLI Commands Reference: [https://developer.wordpress.org/cli/commands/](https://developer.wordpress.org/cli/commands/)
+
 ### Access and credentials checklist
 
 Before running the script, confirm all of the following:

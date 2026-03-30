@@ -8,7 +8,7 @@
 #   the terminal and appended to a timestamped log file.
 #
 # Usage:
-#   ./wpengine-wpcli-loop.sh [--dry-run] <sites_csv_file> <commands_csv_file>
+#   ./wpengine-wpcli-loop.sh [--dry-run] [--concurrency N] <sites_csv_file> <commands_csv_file>
 #
 # Arguments:
 #   sites_csv_file   — Path to a CSV with one WP Engine install name per line
@@ -31,14 +31,40 @@
 set -euo pipefail
 
 DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-    DRY_RUN=1
-    shift
-fi
+CONCURRENCY=1
+
+while [[ $# -gt 0 ]]; do
+    case "${1:-}" in
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --concurrency)
+            if [[ $# -lt 2 || ! "${2:-}" =~ ^[0-9]+$ || "${2:-0}" -lt 1 ]]; then
+                echo "Error: --concurrency requires a positive integer (example: --concurrency 4)"
+                exit 1
+            fi
+            CONCURRENCY="$2"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--dry-run] [--concurrency N] <sites_csv_file> <commands_csv_file>"
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option '$1'"
+            echo "Usage: $0 [--dry-run] [--concurrency N] <sites_csv_file> <commands_csv_file>"
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 # --- Usage check ---
 if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 [--dry-run] <sites_csv_file> <commands_csv_file>"
+    echo "Usage: $0 [--dry-run] [--concurrency N] <sites_csv_file> <commands_csv_file>"
     echo "Example: $0 my-sites.csv update-plugins.csv"
     exit 1
 fi
@@ -104,12 +130,17 @@ if [[ ${#WPCLI_COMMANDS[@]} -eq 0 ]]; then
 fi
 
 LOG_FILE="./wpcli_run_$(date +%F_%H-%M-%S).log"
+SSH_CONTROL_PATH="${TMPDIR:-/tmp}/wpe-tools-ssh-%C"
 SSH_OPTS=(
     -T
+    -o BatchMode=yes
     -o StrictHostKeyChecking=accept-new
     -o ConnectTimeout=15
     -o ServerAliveInterval=15
     -o ServerAliveCountMax=3
+    -o ControlMaster=auto
+    -o ControlPersist=120
+    -o ControlPath="$SSH_CONTROL_PATH"
 )
 
 TOTAL_SITES=0
@@ -146,11 +177,46 @@ run_ssh_with_retry() {
     return 1
 }
 
+read_site_stat() {
+    local status_file="$1"
+    local key
+    local value
+    local attempted=0
+    local failed_cmds=0
+    local site_failed=1
+
+    while IFS='=' read -r key value; do
+        case "$key" in
+            attempted) attempted="$value" ;;
+            failed_cmds) failed_cmds="$value" ;;
+            site_failed) site_failed="$value" ;;
+        esac
+    done < "$status_file"
+
+    TOTAL_COMMANDS=$((TOTAL_COMMANDS + attempted))
+    FAILED_COMMANDS=$((FAILED_COMMANDS + failed_cmds))
+
+    if [[ "$site_failed" == "1" ]]; then
+        FAILED_SITES=$((FAILED_SITES + 1))
+        OVERALL_FAILED=1
+    else
+        SUCCESSFUL_SITES=$((SUCCESSFUL_SITES + 1))
+    fi
+}
+
 # --- Function to run WP-CLI commands on a single environment ---
 run_wpcli() {
     local env="$1"
+    local status_file="${2:-}"
     local host="${env}@${env}.ssh.wpengine.net"
     local site_failed=0
+    local remote_cmd=""
+    local cmd_b64=""
+    local cmd_start_ts=0
+    local cmd_end_ts=0
+    local cmd_duration=0
+    local attempted=0
+    local failed_cmds=0
 
     echo "----------------------------------------"
     echo "[$(date '+%F %T')] Connecting to: $env ($host)"
@@ -158,35 +224,60 @@ run_wpcli() {
 
     if ! run_ssh_with_retry "$host" "cd \"/sites/${env}\" && command -v wp >/dev/null 2>&1"; then
         echo "❌ Preflight failed on $env (directory or WP-CLI check failed)"
+        site_failed=1
+        if [[ -n "$status_file" ]]; then
+            printf "attempted=%s\nfailed_cmds=%s\nsite_failed=%s\n" "$attempted" "$failed_cmds" "$site_failed" > "$status_file"
+        fi
         return 1
     fi
 
     for cmd in "${WPCLI_COMMANDS[@]}"; do
-        TOTAL_COMMANDS=$((TOTAL_COMMANDS + 1))
+        attempted=$((attempted + 1))
         echo ">>> Running: $cmd"
+        cmd_start_ts=$(date +%s)
 
         if (( DRY_RUN == 1 )); then
             echo "🧪 Dry run: command not executed"
             continue
         fi
 
-        if ! run_ssh_with_retry "$host" "cd \"/sites/${env}\" && bash -lc $(printf '%q' "$cmd")"; then
+        # Encode the command to avoid shell tokenization issues over SSH,
+        # then decode and execute remotely inside the site directory.
+        cmd_b64="$(printf '%s' "$cmd" | base64 | tr -d '\n')"
+        printf -v remote_cmd \
+            'cd "/sites/%s" && printf %%s %q | base64 --decode | bash' \
+            "$env" \
+            "$cmd_b64"
+        if ! run_ssh_with_retry "$host" "$remote_cmd"; then
             echo "❌ Command failed: $cmd"
-            FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
+            failed_cmds=$((failed_cmds + 1))
             site_failed=1
+        else
+            cmd_end_ts=$(date +%s)
+            cmd_duration=$((cmd_end_ts - cmd_start_ts))
+            echo "⏱️ Completed in ${cmd_duration}s"
         fi
     done
 
     if (( site_failed == 1 )); then
         echo "⚠️ Finished with command failures: $env"
+        if [[ -n "$status_file" ]]; then
+            printf "attempted=%s\nfailed_cmds=%s\nsite_failed=%s\n" "$attempted" "$failed_cmds" "$site_failed" > "$status_file"
+        fi
         return 1
     fi
 
     echo "✅ Finished: $env"
     echo
+    if [[ -n "$status_file" ]]; then
+        printf "attempted=%s\nfailed_cmds=%s\nsite_failed=%s\n" "$attempted" "$failed_cmds" "$site_failed" > "$status_file"
+    fi
 }
 
-# --- Loop through environments with error handling ---
+# --- Loop through environments with optional concurrency ---
+declare -a RUN_PIDS=()
+declare -a RUN_STATUS_FILES=()
+
 for env in "${ENVS[@]}"; do
     TOTAL_SITES=$((TOTAL_SITES + 1))
 
@@ -197,13 +288,37 @@ for env in "${ENVS[@]}"; do
         continue
     fi
 
-    if ! run_wpcli "$env"; then
-        FAILED_SITES=$((FAILED_SITES + 1))
-        OVERALL_FAILED=1
-        log_line "❌ Error running commands on $env — continuing to next site"
+    status_file="$(mktemp)"
+
+    if (( CONCURRENCY <= 1 )); then
+        if ! run_wpcli "$env" "$status_file"; then
+            log_line "❌ Error running commands on $env — continuing to next site"
+        fi
+        read_site_stat "$status_file"
+        rm -f "$status_file"
     else
-        SUCCESSFUL_SITES=$((SUCCESSFUL_SITES + 1))
+        run_wpcli "$env" "$status_file" &
+        RUN_PIDS+=("$!")
+        RUN_STATUS_FILES+=("$status_file")
+
+        if (( ${#RUN_PIDS[@]} >= CONCURRENCY )); then
+            if ! wait "${RUN_PIDS[0]}"; then
+                true
+            fi
+            read_site_stat "${RUN_STATUS_FILES[0]}"
+            rm -f "${RUN_STATUS_FILES[0]}"
+            RUN_PIDS=("${RUN_PIDS[@]:1}")
+            RUN_STATUS_FILES=("${RUN_STATUS_FILES[@]:1}")
+        fi
     fi
+done
+
+for i in "${!RUN_PIDS[@]}"; do
+    if ! wait "${RUN_PIDS[$i]}"; then
+        true
+    fi
+    read_site_stat "${RUN_STATUS_FILES[$i]}"
+    rm -f "${RUN_STATUS_FILES[$i]}"
 done
 
 log_line "Run summary:"
